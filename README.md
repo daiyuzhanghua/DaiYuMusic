@@ -17,11 +17,6 @@
   <img src="https://img.shields.io/badge/Capacitor-8-119EFF?logo=capacitor&logoColor=white" />
 </p>
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/a20b5785-c4b3-4f44-86d9-f07350caf873" width="45%" />
-  <img src="https://github.com/user-attachments/assets/475cb456-ed0f-40e9-829d-a746dffd2688" width="45%" />
-</p>
-
 ## 核心功能
 
 - **多音源聚合与回退**：支持多源检索与播放失败回退（本地下载/缓存/直连/代理/下一首）。
@@ -33,7 +28,7 @@
 - **数据备份**：支持导出/导入本地 JSON 文件，以及配置 WebDAV 手动上传和恢复备份。
 - **移动端体验完整**：支持 PWA 安装、Android 打包与 Media Session 集成，网页端也能接近原生体验。
 
-> 数据同步功能：通过管理员手动分配的 `SYNC_KEY` 接入。存储基于 Cloudflare KV（上限 25 MB），单用户理论可稳定同步 5 万首歌曲
+> 数据同步功能：通过管理员手动分配的 SYNC_KEY 接入。存储基于 Cloudflare KV（上限 25 MB），单用户理论可稳定同步 5 万首歌曲
 
 ## 音源支持
 
@@ -52,6 +47,7 @@
 | 本地音乐          |  ❌  |  ✅  |  ✅  |    ❌    | 仅移动端支持                                               |
 | 播客（歌单广场）  |  ✅  |  ✅  |  ❌  |    ❌    | RSS 播客订阅，支持小宇宙链接与 OPML 批量导入               |
 | Alist（歌单广场） |  ✅  |  ✅  |  ❌  |    ❌    | 仅音频，如 ASMR 站                                         |
+| 115 网盘（歌单广场）| ✅  |  ✅  |  ✅  |    ❌    | 浏览/搜索/播放网盘音乐、存到 115、封面歌词专辑刮削         |
 
 > [!NOTE]
 >
