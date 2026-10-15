@@ -2,7 +2,7 @@ import { formatDate } from "date-fns";
 import { Capacitor } from "@capacitor/core";
 
 const LOG_STORAGE_KEY = "otter-debug-logs";
-const MAX_LOG_ENTRIES = 100;
+const MAX_LOG_ENTRIES = 200;
 const APP_START_TIME = formatDate(new Date(), "yyyy-MM-dd HH:mm:ss");
 const IS_BROWSER = typeof window !== "undefined";
 
@@ -175,7 +175,7 @@ function interceptNetworkRequests() {
 
     const origOpen = xhr.open;
     xhr.open = function (method: string, url: string | URL, ...rest: any[]) {
-      reqMethod = method; // 修复了原版中 method = method 作用域覆盖导致的 Bug
+      reqMethod = method;
       reqUrl = url.toString();
       return origOpen.apply(this, [method, url, ...rest] as any);
     };
