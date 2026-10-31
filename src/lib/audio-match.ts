@@ -56,16 +56,32 @@ function scoreAutoMatchCandidate(
 }
 
 /**
+ * 检测网易云试听片段（音频时长可能是浮点型）
+ * @param duration 音频时长（秒）
+ * @param src 当前音频元素 src
+ */
+export function isNeteaseSampleClip(duration: number, src: string): boolean {
+  return (
+    [30, 45, 60].some((d) => Math.abs(duration - d) < 1) ||
+    src.includes("jdusicrep-ts")
+  );
+}
+
+/**
  * 自动匹配免费源逻辑
  * @param track 需要匹配的歌曲
  * @param targetSource 可选，指定目标音源（仅搜索该音源）
  * @param pagePath 可选，当前页面路径（手动换源时传入，用于判断同步范围）
+ * @param shouldAbort 可选，中止检查回调：搜索完成后、修改状态前调用，返回 true 则静默中止换源
+ * @param playAfterMatch 可选，换源成功后立即播放：不在队列时插入到当前曲之后，已在队列时直接定位播放
  * @returns 是否匹配并切换成功
  */
 export async function handleAutoMatch(
   track: MusicTrack,
   targetSource?: MusicSource,
-  pagePath?: string
+  pagePath?: string,
+  shouldAbort?: () => boolean,
+  playAfterMatch = false
 ): Promise<boolean> {
   if (track.source && EXCLUDED_FOR_SEARCH.includes(track.source)) {
     return false;
@@ -122,6 +138,21 @@ export async function handleAutoMatch(
       return false;
     }
 
+    // 搜索耗时期间原音源可能已恢复正常（如流式加载时临时时长被纠正为完整时长），
+    // 此时不应覆盖队列曲目
+    if (shouldAbort?.()) {
+      logger.info(
+        "audio-match",
+        "Auto match aborted: original source playing normally",
+        {
+          trackId: track.id,
+          source: track.source,
+        }
+      );
+      toast.dismiss(toastId);
+      return false;
+    }
+
     // 仅对 B 站音源保留原歌曲的 name 和 artist，避免标题杂乱与作者错位
     const { bilibiliKeepOriginalMeta } = useMusicStore.getState();
     const finalTrack: MusicTrack =
@@ -136,7 +167,24 @@ export async function handleAutoMatch(
       setAutoMatchContext({ index: currentIndex, tried: nextTried });
     }
 
-    updateTrackInQueue(track.id, finalTrack);
+    const { queue, playTrackAsNext, setCurrentIndexAndPlay } =
+      useMusicStore.getState();
+    const queuedIndex = queue.findIndex((t) => t.id === track.id);
+
+    if (playAfterMatch && queuedIndex === -1) {
+      // 原曲不在当前队列：把换源后的曲目插入到当前曲之后并立即播放
+      playTrackAsNext(finalTrack);
+      const insertedIndex = useMusicStore
+        .getState()
+        .queue.findIndex((t) => t.id === finalTrack.id);
+      if (insertedIndex !== -1) setCurrentIndexAndPlay(insertedIndex);
+    } else {
+      updateTrackInQueue(track.id, finalTrack);
+      // 手动换源后立即播放该曲目（已在队列时直接定位到它，索引不变）
+      if (playAfterMatch && queuedIndex !== -1) {
+        setCurrentIndexAndPlay(queuedIndex);
+      }
+    }
 
     // 清除目标音源的 URL 缓存，强制重新获取音频 URL
     // 避免复用之前缓存中的试听片段（如 _netease 的 30 秒预览）

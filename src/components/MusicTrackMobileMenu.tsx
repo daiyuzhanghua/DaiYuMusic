@@ -31,12 +31,19 @@ import {
 } from "@/types/music";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useMusicStore } from "@/store/music-store";
-import { MusicProviderFactory } from "@/lib/music-provider";
+import {
+  MusicProviderFactory,
+  resolveFallbackSearchSource,
+} from "@/lib/music-provider";
 import { IS_NATIVE } from "@/lib/api/config";
 import { MusicCommentsDrawer } from "./MusicCommentsDrawer";
 import { handleAutoMatch } from "@/lib/audio-match";
-import { getAllVisibleSourcesForSwitch } from "@/hooks/use-aggregated-sources";
+import {
+  EXCLUDED_FOR_SEARCH,
+  getAllVisibleSourcesForSwitch,
+} from "@/hooks/use-aggregated-sources";
 import { parseAlistTrackId } from "@/lib/alist/alist-api";
+import { resolveQqAlbumMid } from "@/lib/qqmusic/qqmusic-api";
 import {
   Dialog,
   DialogContent,
@@ -120,21 +127,11 @@ export function MusicTrackMobileMenu({
 
   const provider = MusicProviderFactory.getProvider(track.source);
 
-  // 音源切换可用性：仅收藏页、歌单页、或当前正在播放的歌曲允许切换
-  const canSwitchSource = useMemo(() => {
-    if (
-      track.source === "local" ||
-      track.source === "podcast" ||
-      track.source === "alist"
-    )
-      return false;
-    const { queue, currentIndex } = useMusicStore.getState();
-    if (queue[currentIndex]?.id === track.id) return true;
-    const path = location.pathname;
-    if (path === "/favorites") return true;
-    if (path.startsWith("/playlist/")) return true;
-    return false;
-  }, [track.id, track.source, location.pathname]);
+  // 音源切换可用性：仅本地/播客/Alist 这类无搜索能力的音源不可换源
+  const canSwitchSource = useMemo(
+    () => !EXCLUDED_FOR_SEARCH.includes(track.source),
+    [track.source]
+  );
 
   const handleSearch = async (
     keyword: string,
@@ -211,19 +208,48 @@ export function MusicTrackMobileMenu({
         }
       }
       if (type === "album" && provider.getAlbumDetail) {
-        const targetPath =
+        const isBilibiliAlbum =
           track.source === "bilibili" &&
           (id?.startsWith("bilibili_S_") ||
             id?.startsWith("bilibili_O_") ||
-            id?.startsWith("bilibili_V_"))
-            ? `/bilibili-collection/${id}`
+            id?.startsWith("bilibili_V_"));
+        const isQqAlbum = track.source === "qq";
+        const targetPath = isBilibiliAlbum
+          ? `/bilibili-collection/${id}`
+          : isQqAlbum
+            ? `/qq-album/${id}`
             : `/netease-album/${id}`;
-        navigate(targetPath);
+        // 带上专辑名与歌手，供网易云专辑页加载失败时回退到 QQ 音乐
+        navigate(
+          targetPath,
+          isBilibiliAlbum || isQqAlbum
+            ? undefined
+            : { state: { albumFallback: { name: keyword, artist } } }
+        );
         onOpenChange(false);
         onNavigate?.();
         return;
       }
     }
+
+    // 网易云专辑跳转失败（缺专辑 ID 或详情获取异常）、
+    // 或 QQ 歌曲缺少专辑 mid（旧数据）：用专辑名解析 albummid 后进 QQ 专辑页；
+    // 解析不到时继续走默认的单音源搜索
+    if (
+      type === "album" &&
+      (track.source === "netease" ||
+        track.source === "_netease" ||
+        track.source === "qq")
+    ) {
+      const qqAlbumMid = await resolveQqAlbumMid(keyword, artist);
+      if (qqAlbumMid) {
+        navigate(`/qq-album/${qqAlbumMid}`);
+        onOpenChange(false);
+        onNavigate?.();
+        return;
+      }
+    }
+
     let searchKeyword = keyword;
     if (type === "album" && artist) {
       searchKeyword = `${artist} ${keyword}`;
@@ -240,9 +266,8 @@ export function MusicTrackMobileMenu({
     } else {
       setSearchIntent(null);
     }
-    if (track.source && track.source !== "local") {
-      setSearchSource(provider.searchArtist ? track.source : "all");
-    }
+    // 回退搜索锁定单音源，避免聚合搜索等待全部音源返回
+    setSearchSource(resolveFallbackSearchSource(track.source));
     setSearchResults([]);
     navigate("/search");
     onOpenChange(false);
@@ -406,7 +431,7 @@ export function MusicTrackMobileMenu({
               </ActionButton>
             )}
 
-            {/* 音源显示：local/podcast 或歌曲不在任何歌单/收藏中时不可切换 */}
+            {/* 音源显示：local/podcast/alist 无搜索能力，不可切换 */}
             <Button
               variant="ghost"
               className="justify-start w-full"
@@ -492,7 +517,14 @@ export function MusicTrackMobileMenu({
                   onClick={async () => {
                     setShowSourceSwitch(false);
                     onOpenChange(false);
-                    await handleAutoMatch(track, source, location.pathname);
+                    // 换源后立即播放：不在队列时插入当前列表，已在队列时定位播放
+                    await handleAutoMatch(
+                      track,
+                      source,
+                      location.pathname,
+                      undefined,
+                      true
+                    );
                   }}
                 >
                   {isCurrent ? (

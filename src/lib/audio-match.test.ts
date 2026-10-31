@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MusicSource, MusicTrack } from "@/types/music";
+import { toast } from "react-hot-toast";
 import { handleAutoMatch } from "./audio-match";
 import { useMusicStore } from "@/store/music-store";
 import { MusicProviderFactory } from "./music-provider";
@@ -17,6 +18,7 @@ vi.mock("react-hot-toast", () => ({
     loading: vi.fn(() => "toast-id"),
     success: vi.fn(),
     error: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 
@@ -431,5 +433,136 @@ describe("handleAutoMatch", () => {
     );
     // autoMatchContext 应更新为新的 index
     expect(useMusicStore.getState().autoMatchContext?.index).toBe(1);
+  });
+
+  it("aborts silently when shouldAbort returns true after search", async () => {
+    const sourceTrack = createTrack("old", "netease");
+    const match = createTrack("new", "joox");
+    useMusicStore.setState({
+      queue: [sourceTrack],
+      originalQueue: [sourceTrack],
+    });
+    const search = vi
+      .fn()
+      .mockResolvedValue({ items: [match], hasMore: false });
+    vi.mocked(MusicProviderFactory.getProvider).mockReturnValue({
+      source: "joox",
+      search,
+      getUrl: vi.fn(),
+      getPic: vi.fn(),
+      getLyric: vi.fn(),
+    });
+
+    const result = await handleAutoMatch(
+      sourceTrack,
+      undefined,
+      undefined,
+      () => true
+    );
+
+    expect(result).toBe(false);
+    // 队列不应被换源覆盖
+    expect(useMusicStore.getState().queue[0]?.id).toBe("old");
+    // 不应记录 tried，避免影响后续自动换源
+    expect(useMusicStore.getState().autoMatchContext).toBeNull();
+    expect(toast.dismiss).toHaveBeenCalledWith("toast-id");
+  });
+
+  it("proceeds when shouldAbort returns false", async () => {
+    const sourceTrack = createTrack("old", "netease");
+    const match = createTrack("new", "joox");
+    useMusicStore.setState({
+      queue: [sourceTrack],
+      originalQueue: [sourceTrack],
+    });
+    const search = vi
+      .fn()
+      .mockResolvedValue({ items: [match], hasMore: false });
+    vi.mocked(MusicProviderFactory.getProvider).mockReturnValue({
+      source: "joox",
+      search,
+      getUrl: vi.fn(),
+      getPic: vi.fn(),
+      getLyric: vi.fn(),
+    });
+
+    const result = await handleAutoMatch(
+      sourceTrack,
+      undefined,
+      undefined,
+      () => false
+    );
+
+    expect(result).toBe(true);
+    expect(useMusicStore.getState().queue[0]?.id).toBe("new");
+  });
+
+  it("inserts and plays the matched track when playAfterMatch is true", async () => {
+    const playing = createTrack("playing", "kuwo", "七里香", ["周杰伦"]);
+    const sourceTrack = createTrack("old", "netease");
+    const match = createTrack("new", "joox");
+    useMusicStore.setState({
+      queue: [playing],
+      originalQueue: [playing],
+      currentIndex: 0,
+      isPlaying: false,
+      hasUserGesture: false,
+    });
+    const search = vi
+      .fn()
+      .mockResolvedValue({ items: [match], hasMore: false });
+    vi.mocked(MusicProviderFactory.getProvider).mockReturnValue({
+      source: "joox",
+      search,
+      getUrl: vi.fn(),
+      getPic: vi.fn(),
+      getLyric: vi.fn(),
+    });
+
+    const result = await handleAutoMatch(
+      sourceTrack,
+      "joox",
+      "/search",
+      undefined,
+      true
+    );
+
+    const state = useMusicStore.getState();
+    expect(result).toBe(true);
+    expect(state.queue.map((t) => t.id)).toEqual(["playing", "new"]);
+    expect(state.currentIndex).toBe(1);
+    expect(state.isPlaying).toBe(true);
+    expect(state.hasUserGesture).toBe(true);
+  });
+
+  it("switches the queued track in place and plays it when playAfterMatch is true", async () => {
+    const first = createTrack("first", "kuwo", "七里香", ["周杰伦"]);
+    const second = createTrack("second", "kuwo", "夜曲", ["周杰伦"]);
+    const sourceTrack = createTrack("old", "netease");
+    const match = createTrack("new", "joox");
+    useMusicStore.setState({
+      queue: [first, second, sourceTrack],
+      originalQueue: [first, second, sourceTrack],
+      currentIndex: 0,
+      isPlaying: false,
+      hasUserGesture: false,
+    });
+    const search = vi
+      .fn()
+      .mockResolvedValue({ items: [match], hasMore: false });
+    vi.mocked(MusicProviderFactory.getProvider).mockReturnValue({
+      source: "joox",
+      search,
+      getUrl: vi.fn(),
+      getPic: vi.fn(),
+      getLyric: vi.fn(),
+    });
+
+    await handleAutoMatch(sourceTrack, "joox", undefined, undefined, true);
+
+    const state = useMusicStore.getState();
+    expect(state.queue.map((t) => t.id)).toEqual(["first", "second", "new"]);
+    expect(state.currentIndex).toBe(2);
+    expect(state.isPlaying).toBe(true);
   });
 });
